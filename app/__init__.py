@@ -1,0 +1,1 @@
+"""Embedding Service application package."""

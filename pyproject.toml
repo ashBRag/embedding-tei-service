@@ -1,0 +1,80 @@
+[project]
+name = "embedding-service"
+version = "0.1.0"
+description = "An API endpoint between TEI and consuming services: batches text and returns embeddings"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    # API
+    "fastapi>=0.141.1",
+    "uvicorn[standard]>=0.35.0",
+    # Validation / configuration
+    "pydantic>=2.11",
+    "pydantic-settings>=2.10",
+    "httpx>=0.28",
+    # Auth / security (pyjwt: opportunistic bearer-token decode for log context, see libs/middleware)
+    "pyjwt[crypto]>=2.10",
+    # Embeddings client base class (see libs/ai/embeddings.py)
+    "langchain-core>=0.3",
+    # Logging / metrics
+    "structlog>=25.4",
+    "prometheus-client>=0.22",
+    # Rate limiting
+    "slowapi>=0.1.9",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28",
+    "pytest>=8.3",
+    "pytest-asyncio>=0.26",
+    "ruff>=0.12",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]
+python_files = [
+    "test_*.py",
+    "*_test.py",
+    "tests.py",
+]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 119
+target-version = "py314"
+exclude = [
+    "migrations",
+    "*.ipynb",
+    ".venv",
+    "venv",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",
+    "F",
+    "B",
+    "ERA",
+    "D",
+    "I",
+    "UP",
+]
+ignore = [
+    "E501",
+    "F401",
+    "D203",
+    "D213",
+    "B904",
+    "B008",
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["E402"]
+"tests/**" = ["D103"]
