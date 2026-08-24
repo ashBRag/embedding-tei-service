@@ -1,9 +1,9 @@
 """POST /api/v1/embed: batch-embed texts through TEI and return the vectors."""
 
 import httpx
-from fastapi import APIRouter, Request, status
+from fastapi import APIRouter, Depends, Request, status
 
-from app.api.deps import EmbeddingServiceDep
+from app.api.deps import EmbeddingServiceDep, require_scopes
 from app.core.config import settings
 from app.core.limiter import limiter
 from app.integrations.tei import EmbeddingValidationError
@@ -20,7 +20,12 @@ class UpstreamEmbeddingError(AppError):
     code = "upstream_embedding_error"
 
 
-@router.post("/embed", response_model=EmbedResponse, status_code=status.HTTP_200_OK)
+@router.post(
+    "/embed",
+    response_model=EmbedResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(require_scopes())],
+)
 @limiter.limit(settings.RATE_LIMIT_ENDPOINTS["embed"][0])
 async def embed_texts(
     request: Request,

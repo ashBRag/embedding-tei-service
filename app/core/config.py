@@ -17,6 +17,12 @@ class Settings(BaseAppSettings):
     DESCRIPTION: str = "An API endpoint between TEI and consuming services: batches text and returns embeddings"
     API_V1_STR: str = "/api/v1"
 
+    # JWT auth for route access (see app/api/deps.py:require_scopes). Distinct
+    # from JWT_SECRET_KEY/JWT_ALGORITHM (BaseAppSettings) which those two
+    # also draw on - these add the expected 'iss'/'aud' claims.
+    JWT_ISSUER: str = "https://auth.example.com"
+    JWT_AUDIENCE: str = "service-b"
+
     # Per-route rate limits; "default" (from BaseAppSettings.RATE_LIMIT_DEFAULT)
     # applies to any route not listed here.
     RATE_LIMIT_ENDPOINTS: dict[str, list[str]] = {
