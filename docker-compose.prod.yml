@@ -1,6 +1,6 @@
 services:
   app:
-    image: ghcr.io/ashBRag/embedding-service:latest
+    image: ghcr.io/ashbrag/embedding-service:latest
 
     ports:
       - "8000:8000"

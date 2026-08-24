@@ -55,16 +55,16 @@ docker-logs:
 docker-restart: docker-down docker-up
 
 # docker-compose.prod.yml is an overlay (pulls IMAGE_TAG from ghcr, no
-# build:) meant to layer on top of docker-compose.yml, not run standalone.
+# build:) 
 docker-prod-up: docker-network
 	@if [ ! -f .env.production ]; then echo "Missing .env.production"; exit 1; fi
-	$(DOCKER_COMPOSE) -f docker-compose.yml -f docker-compose.prod.yml up -d
+	$(DOCKER_COMPOSE) -f docker-compose.prod.yml up -d
 
 docker-prod-down:
-	$(DOCKER_COMPOSE) -f docker-compose.yml -f docker-compose.prod.yml down
+	$(DOCKER_COMPOSE) -f docker-compose.prod.yml down
 
 docker-prod-logs:
-	$(DOCKER_COMPOSE) -f docker-compose.yml -f docker-compose.prod.yml logs -f app
+	$(DOCKER_COMPOSE) -f docker-compose.prod.yml logs -f app
 
 help:
 	@echo "Usage: make <target> [ENV=development|staging|production]"
