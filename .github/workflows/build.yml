@@ -10,7 +10,7 @@ permissions:
   packages: write
 
 env:
-  IMAGE_NAME: ghcr.io/ashBRag/embedding-service
+  IMAGE_NAME: ghcr.io/ashbrag/embedding-service
 
 jobs:
   build:
