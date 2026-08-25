@@ -34,6 +34,8 @@ Return             {embeddings: [[...], ...], dimension: N}, same order as input
 |---|---|
 | `POST /api/v1/embed` | Embeds `texts` (max `EMBED_MAX_TEXTS_PER_REQUEST` items, each up to `EMBED_MAX_TEXT_CHARS` characters) and returns one vector per input text, in order. |
 
+All `/api/v1/...` routes require a JWT bearer token - see [docs/AUTH.md](docs/AUTH.md).
+
 ## Project layout
 
 ```

@@ -14,6 +14,7 @@ from fastapi import (
     status,
 )
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -91,6 +92,49 @@ app.add_middleware(
 
 # All project-specific routes are mounted under API_V1_STR (see app/api/v1/api.py).
 app.include_router(api_router, prefix=settings.API_V1_STR)
+
+
+def custom_openapi() -> dict[str, Any]:
+    """Add the bearer-JWT security scheme so /docs shows an Authorize button.
+
+    Auth here is a plain `Authorization: Bearer <token>` header checked by
+    libs.auth.require_scopes (see app/api/deps.py), not FastAPI's own
+    OAuth2/HTTPBearer dependency machinery - so the scheme has to be added to
+    the OpenAPI schema by hand rather than inferred from a dependency.
+    """
+    if app.openapi_schema:
+        return app.openapi_schema
+
+    schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        routes=app.routes,
+    )
+    schema["components"]["securitySchemes"] = {
+        "BearerAuth": {
+            "type": "http",
+            "scheme": "bearer",
+            "bearerFormat": "JWT",
+            "description": (
+                "JWT issued by the auth service (see docs/AUTH.md). "
+                "Required scopes, if any, are listed per-endpoint below."
+            ),
+        }
+    }
+    # Only under API_V1_STR requires a bearer token - "/", "/health", and
+    # "/metrics" stay public.
+    for path_str, path in schema["paths"].items():
+        if not path_str.startswith(settings.API_V1_STR):
+            continue
+        for operation in path.values():
+            operation["security"] = [{"BearerAuth": []}]
+
+    app.openapi_schema = schema
+    return app.openapi_schema
+
+
+app.openapi = custom_openapi
 
 
 @app.get("/")
