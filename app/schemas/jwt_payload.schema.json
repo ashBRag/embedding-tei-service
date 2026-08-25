@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://embedding-service/schemas/jwt-payload.schema.json",
+  "title": "JWTPayload",
+  "description": "Claims required in a bearer JWT accepted by libs.auth.require_scopes (libs/auth/base.py). Verified against JWT_SECRET_KEY/JWT_ALGORITHM/JWT_ISSUER/JWT_AUDIENCE; see docs/AUTH.md.",
+  "type": "object",
+  "properties": {
+    "sub": {
+      "type": "string",
+      "description": "Subject - calling principal's user id. Stashed on request.state.user_id."
+    },
+    "exp": {
+      "type": "integer",
+      "description": "Expiry, Unix timestamp (seconds)."
+    },
+    "iat": {
+      "type": "integer",
+      "description": "Issued-at, Unix timestamp (seconds)."
+    },
+    "iss": {
+      "type": "string",
+      "description": "Issuer. Must equal the service's configured JWT_ISSUER."
+    },
+    "aud": {
+      "type": "string",
+      "description": "Audience. Must equal the service's configured JWT_AUDIENCE."
+    },
+    "scope": {
+      "type": "string",
+      "description": "Space-separated scopes, e.g. 'orders:read orders:write'. Checked against each route's required scopes.",
+      "default": ""
+    },
+    "jti": {
+      "type": "string",
+      "description": "Optional JWT id, passed through unchanged to TokenPayload.jti."
+    }
+  },
+  "required": ["sub", "exp", "iat", "iss", "aud"],
+  "additionalProperties": true
+}

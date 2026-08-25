@@ -40,6 +40,37 @@ A valid token missing a required scope gets `403 Forbidden`.
 decoded payload (`sub`, `scopes`, `jti`) is returned to the route as a
 `TokenPayload`.
 
+### Payload shape
+
+```json
+{
+  "sub": "user-123",
+  "exp": 1790277655,
+  "iat": 1787685655,
+  "iss": "https://auth.example.com",
+  "aud": "service-b",
+  "scope": "orders:read orders:write",
+  "jti": "b3f1c2a0-6e4d-4b8a-9f21-0d6e5a7c9f10"
+}
+```
+
+JSON Schema: [`app/schemas/jwt_payload.schema.json`](../app/schemas/jwt_payload.schema.json).
+
+### Claim values
+
+| Claim | Type | Example | Notes |
+|---|---|---|---|
+| `sub` | string | `"user-123"` | Calling principal's unique id (opaque identifier, not an email). Becomes `request.state.user_id`. Required. |
+| `exp` | integer, Unix timestamp (seconds) | `1798761600` | Expiry. PyJWT rejects the token once `now > exp`. Typically short-lived. Required. |
+| `iat` | integer, Unix timestamp (seconds) | `1798758000` | Issued-at; must be `<= exp`. Not actively enforced beyond being present. Required. |
+| `iss` | string | `"https://auth.example.com"` | Must exactly match this service's `JWT_ISSUER`. Mismatch is a 401 even with a valid signature. Required. |
+| `aud` | string | `"service-b"` | Must exactly match this service's `JWT_AUDIENCE`. Prevents a token minted for one service being replayed against another. Required. |
+| `scope` | string, space-separated | `"orders:read orders:write"` | Permissions granted. Route must find all its required scopes here or gets 403. Optional - missing/empty means no scopes granted. |
+| `jti` | string | a UUID | Unique id for this token instance. Not validated by this service, just passed through to `TokenPayload.jti` for the caller's own use (e.g. revocation, audit logs). Optional. |
+
+The token must also be signed with the configured `JWT_ALGORITHM`/`JWT_SECRET_KEY` -
+a well-formed payload with a bad signature is rejected before any claims are read.
+
 ## Required scopes per endpoint
 
 | Endpoint | Required scopes |
