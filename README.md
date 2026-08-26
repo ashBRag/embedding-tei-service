@@ -1,9 +1,9 @@
 # Embedding Service
 
-A thin API endpoint between TEI (HuggingFace Text Embeddings Inference) and
-its consuming services. Takes a batch of texts, re-batches them within
-TEI's own request-size limit, validates the response, and returns one
-vector per input text - in order.
+A thin API endpoint in front of multiple embedding backends (TEI, Voyage AI,
+...) for its consuming services. Takes a batch of texts, re-batches them
+within the chosen provider's own request-size limit, validates the
+response, and returns one vector per input text - in order.
 
 Stateless: no database, no storage. A caller (e.g. a RAG backend writing
 vectors into pgvector) owns persistence and schema on its own side.
@@ -11,19 +11,23 @@ vectors into pgvector) owns persistence and schema on its own side.
 ## Pipeline
 
 ```
-texts (POST /api/v1/embed)
+texts (POST /api/v1/embed, provider: "tei" | "voyage" | ...)
   │
   ▼
-Batch              re-batched into groups of at most TEI_CLIENT_BATCH_SIZE
-  │                (must stay <= TEI's own --max-client-batch-size, or
-  │                 every request in an over-sized batch gets a 413)
+Select provider    look up `provider` in the registry built at startup from
+  │                whichever providers have config present (see
+  │                app/main.py, app/integrations/base.py's EmbeddingProvider)
   ▼
-Embed              each batch sent to TEI's /embed endpoint
+Batch              re-batched into groups of at most that provider's own
+  │                client batch size (TEI_CLIENT_BATCH_SIZE / 
+  │                VOYAGE_CLIENT_BATCH_SIZE) - must stay within the
+  │                backend's own request-size limit, or the whole batch fails
+  ▼
+Embed              each batch sent to the provider's embeddings endpoint
   │
   ▼
-Validate           one vector per input text, each exactly TEI_EMBEDDING_DIM
-  │                long - a mismatch raises rather than returning malformed
-  │                output
+Validate           one vector per input text, all the same dimension - a
+  │                mismatch raises rather than returning malformed output
   ▼
 Return             {embeddings: [[...], ...], dimension: N}, same order as input
 ```
@@ -32,24 +36,34 @@ Return             {embeddings: [[...], ...], dimension: N}, same order as input
 
 | Endpoint | Purpose |
 |---|---|
-| `POST /api/v1/embed` | Embeds `texts` (max `EMBED_MAX_TEXTS_PER_REQUEST` items, each up to `EMBED_MAX_TEXT_CHARS` characters) and returns one vector per input text, in order. |
+| `POST /api/v1/embed` | Embeds `texts` (max `EMBED_MAX_TEXTS_PER_REQUEST` items, each up to `EMBED_MAX_TEXT_CHARS` characters) via `provider` (default `"tei"`; `"voyage"` if `VOYAGE_API_KEY` is set) and returns one vector per input text, in order. `input_type: "query" | "document"` is an optional hint some providers (Voyage) use for better retrieval quality. |
 
 All `/api/v1/...` routes require a JWT bearer token - see [docs/AUTH.md](docs/AUTH.md).
+
+## Adding a new provider
+
+1. Add an `Embeddings` client to `libs/ai/embeddings.py` (sync + async HTTP calls to the provider's API).
+2. Add an `app/integrations/<provider>.py` implementing `EmbeddingProvider` (see `app/integrations/base.py`) - batching, validation, error logging, using the shared `embed_in_batches` helper.
+3. Add its config fields to `app/core/config.py` and `.env.example`.
+4. Register it in `app/main.py`'s `embedding_providers` dict, guarded by its own config being present.
+
+No changes needed to the request schema, routing, deps, or `/health` - all provider-agnostic.
 
 ## Project layout
 
 ```
 app/
-  main.py             # Wires everything together with this project's settings/routes
+  main.py             # Wires everything together; builds the provider registry
   core/                 # Settings, rate limiter
-  api/deps.py            # Shared FastAPI dependency providers (embedding service)
+  api/deps.py            # Shared FastAPI dependency providers (provider registry)
   api/v1/routes/         # embed
   schemas/               # Request/response shapes
-  integrations/           # TEIEmbeddingService: batching + response validation
+  integrations/           # EmbeddingProvider implementations: batching + response validation
+                          # (base.py: shared protocol/helper, tei.py, voyage.py)
 
 libs/                    # Small, reusable, project-agnostic infra helpers
                           # (logging, metrics, errors, rate limiting, the TEI
-                          #  HTTP client itself)
+                          #  and Voyage HTTP clients themselves)
 ```
 
 ## Requirements
@@ -81,7 +95,7 @@ uv run uvicorn app.main:app --reload --port 8000
 Check it's up:
 
 - `GET /` - basic service info
-- `GET /health` - liveness + TEI connectivity (`degraded`/503 if unreachable)
+- `GET /health` - liveness + per-provider connectivity (`degraded`/503 only if every registered provider is unreachable)
 - `GET /docs` - Swagger UI
 - `GET /metrics` - Prometheus scrape endpoint
 

@@ -1,32 +1,25 @@
-"""TEI-backed EmbeddingService: batches text through the local TEI HTTP API.
+"""TEI-backed EmbeddingProvider: batches text through the local TEI HTTP API.
 
 Wraps libs.ai.embeddings.TeiEmbeddings (the project's existing TEI HTTP
 client) rather than opening a second httpx client - this module owns only
-the EmbeddingService contract (batching, order/count/dimension validation),
+the EmbeddingProvider contract (batching, order/count/dimension validation),
 not the HTTP call itself.
 
 No DB access here - this integration only ever sees plain text strings in,
 and returns vectors out.
 """
 
-from typing import Any, Protocol
-
 from app.core.config import settings
-from libs.ai.embeddings import TeiEmbeddings
+from app.integrations.base import EmbeddingValidationError, _Logger, embed_in_batches
+from libs.ai.embeddings import TeiEmbeddings, VoyageInputType
 
-
-class _Logger(Protocol):
-    """Structural type for whatever logger TEIEmbeddingService is given."""
-
-    def error(self, event: str, **kwargs: Any) -> None: ...
-
-
-class EmbeddingValidationError(Exception):
-    """Raised when TEI's response doesn't match what was requested (count or dimension)."""
+__all__ = ["EmbeddingValidationError", "TEIEmbeddingService"]
 
 
 class TEIEmbeddingService:
     """Embeds text via a TEI server, batching requests and validating the response."""
+
+    name = "tei"
 
     def __init__(
         self,
@@ -53,11 +46,15 @@ class TEIEmbeddingService:
         self._expected_dim = expected_dim
         self._logger = logger
 
-    async def embed(self, texts: list[str]) -> list[list[float]]:
+    async def embed(self, texts: list[str], input_type: VoyageInputType = None) -> list[list[float]]:
         """Embed `texts` in order, batching requests of at most `batch_size`.
+
+        `input_type` is accepted only to satisfy the shared EmbeddingProvider
+        interface - TEI has no equivalent concept and ignores it.
 
         Args:
             texts: The strings to embed.
+            input_type: Accepted only to satisfy EmbeddingProvider; unused.
 
         Raises:
             EmbeddingValidationError: If any batch's response from TEI
@@ -68,31 +65,30 @@ class TEIEmbeddingService:
             list[list[float]]: One embedding vector per input text, in the
             same order as `texts`. `[]` if `texts` is empty.
         """
-        if not texts:
-            return []
+        return await embed_in_batches(
+            texts,
+            self._batch_size,
+            embed_batch=self._tei.aembed_documents,
+            validate=self._validate,
+            on_error=self._log_error,
+        )
 
-        vectors: list[list[float]] = []
-        for start in range(0, len(texts), self._batch_size):
-            batch = texts[start : start + self._batch_size]
-            try:
-                batch_vectors = await self._tei.aembed_documents(batch)
-            except Exception as exc:
-                # Text content itself is never logged (may carry sensitive
-                # document text) - only its size, since that's what
-                # determines whether TEI's payload_limit trips.
-                if self._logger is not None:
-                    self._logger.error(
-                        "tei_embed_request_failed",
-                        batch_size=len(batch),
-                        batch_chars=sum(len(t) for t in batch),
-                        max_text_chars=max((len(t) for t in batch), default=0),
-                        error_type=type(exc).__name__,
-                    )
-                raise
-            self._validate(batch, batch_vectors)
-            vectors.extend(batch_vectors)
+    async def health_check(self) -> bool:
+        """Return True if TEI's `/health` endpoint responds successfully, False on any error."""
+        return await self._tei.health_check()
 
-        return vectors
+    def _log_error(self, batch: list[str], exc: Exception) -> None:
+        # Text content itself is never logged (may carry sensitive
+        # document text) - only its size, since that's what
+        # determines whether TEI's payload_limit trips.
+        if self._logger is not None:
+            self._logger.error(
+                "tei_embed_request_failed",
+                batch_size=len(batch),
+                batch_chars=sum(len(t) for t in batch),
+                max_text_chars=max((len(t) for t in batch), default=0),
+                error_type=type(exc).__name__,
+            )
 
     def _validate(self, batch: list[str], vectors: list[list[float]]) -> None:
         """Check TEI returned exactly one correctly-sized vector per input text."""

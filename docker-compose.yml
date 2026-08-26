@@ -14,11 +14,10 @@ services:
       # Shared infra values (Postgres, Redis, Kafka/Redpanda, TEI, AWS/LocalStack, ...)
       # come from the infra stack's own .env - loaded first so this service's
       # own .env.${APP_ENV} (listed second) can still override anything if needed.
-      - ../../../Dev Arsenal/Infrastructure/dev-stack/.env
+      - ../../Dev Arsenal/Infrastructure/dev-stack/.env
       - .env.${APP_ENV:-development}
     environment:
       - APP_ENV=${APP_ENV:-development}
-      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-supersecretkeythatshouldbechangedforproduction}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s

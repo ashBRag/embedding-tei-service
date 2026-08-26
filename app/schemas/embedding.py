@@ -1,5 +1,7 @@
 """POST /api/v1/embed request/response schemas."""
 
+from typing import Literal
+
 from pydantic import BaseModel, Field, field_validator
 
 from app.core.config import settings
@@ -12,6 +14,22 @@ class EmbedRequest(BaseModel):
         min_length=1,
         max_length=settings.EMBED_MAX_TEXTS_PER_REQUEST,
         description="Texts to embed, in order. Each item is capped at EMBED_MAX_TEXT_CHARS characters.",
+    )
+    provider: str = Field(
+        default="tei",
+        description=(
+            "Which embedding backend to use. Available providers depend on deployment "
+            "config (e.g. 'voyage' requires VOYAGE_API_KEY to be set) - an unknown or "
+            "unconfigured provider is rejected with a 400 listing the available ones."
+        ),
+    )
+    input_type: Literal["query", "document"] | None = Field(
+        default=None,
+        description=(
+            "Optional hint for providers that support asymmetric query/document "
+            "embeddings (currently Voyage AI) for better retrieval quality. "
+            "Ignored by providers with no equivalent concept (e.g. TEI)."
+        ),
     )
 
     @field_validator("texts")

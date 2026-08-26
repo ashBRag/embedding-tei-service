@@ -24,7 +24,10 @@ from slowapi.errors import RateLimitExceeded
 from app.api.v1.api import api_router
 from app.core.config import settings
 from app.core.limiter import limiter
-from libs.ai import EmbeddingsSettings, build_embeddings
+from app.integrations.base import EmbeddingProvider
+from app.integrations.tei import TEIEmbeddingService
+from app.integrations.voyage import VoyageEmbeddingService
+from libs.ai import EmbeddingsSettings, VoyageEmbeddingsSettings, build_embeddings, build_voyage_embeddings
 from libs.errors import register_exception_handlers
 from libs.logging import setup_logging
 from libs.metrics import (
@@ -41,12 +44,34 @@ from libs.middleware import (
 logger = setup_logging(settings, extra_context={"environment": settings.ENVIRONMENT.value})
 
 # Single shared TEI client for this service - stateless, no DB/storage of its own.
-embeddings = build_embeddings(
-    EmbeddingsSettings(
-        base_url=f"http://{settings.TEI_HOST}:{settings.TEI_CONTAINER_PORT}",
-        timeout=settings.TEI_REQUEST_TIMEOUT_SECONDS,
+# TEMPORARILY DISABLED for Voyage-only testing (see registry below) - restore
+# both this and the "tei" registry entry to re-enable.
+# fmt: off
+# embeddings = build_embeddings(  # noqa: ERA001
+#     EmbeddingsSettings(
+#         base_url=f"http://{settings.TEI_HOST}:{settings.TEI_CONTAINER_PORT}",
+#         timeout=settings.TEI_REQUEST_TIMEOUT_SECONDS,
+#     )
+# )
+# fmt: on
+
+# Provider registry for POST /embed's `provider` field (see
+# app/integrations/base.py's EmbeddingProvider protocol). TEI is always
+# registered; Voyage (and any future provider) is registered only when its
+# config is present, so an unconfigured provider is a normal 400 at request
+# time rather than a startup failure.
+embedding_providers: dict[str, EmbeddingProvider] = {
+    # "tei": TEIEmbeddingService(embeddings, logger=logger),  # disabled for Voyage-only testing  # noqa: ERA001
+}
+if settings.VOYAGE_API_KEY:
+    voyage_embeddings = build_voyage_embeddings(
+        VoyageEmbeddingsSettings(
+            api_key=settings.VOYAGE_API_KEY,
+            model=settings.VOYAGE_MODEL,
+            timeout=settings.VOYAGE_REQUEST_TIMEOUT_SECONDS,
+        )
     )
-)
+    embedding_providers["voyage"] = VoyageEmbeddingService(voyage_embeddings, logger=logger)
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -164,25 +189,31 @@ async def root(request: Request):
 @app.get("/health")
 @limiter.limit(settings.RATE_LIMIT_ENDPOINTS["health"][0])
 async def health_check(request: Request) -> dict[str, Any]:
-    """Liveness + TEI connectivity check.
+    """Liveness + per-provider connectivity check.
+
+    Overall status is "healthy" if at least one registered embedding
+    provider is reachable (callers pick a provider per-request, so the
+    service can still serve traffic with only one backend up), "degraded"
+    if every registered provider is down.
 
     Returns:
         dict[str, Any]: Health status information
     """
     logger.info("health_check_called")
 
-    tei_healthy = await embeddings.health_check()
+    provider_health = {name: await provider.health_check() for name, provider in embedding_providers.items()}
+    any_healthy = any(provider_health.values())
 
     response = {
-        "status": "healthy" if tei_healthy else "degraded",
+        "status": "healthy" if any_healthy else "degraded",
         "version": settings.VERSION,
         "environment": settings.ENVIRONMENT.value,
         "components": {
             "api": "healthy",
-            "tei": "healthy" if tei_healthy else "unhealthy",
+            **{name: "healthy" if healthy else "unhealthy" for name, healthy in provider_health.items()},
         },
         "timestamp": datetime.now(UTC).isoformat(),
     }
 
-    status_code = status.HTTP_200_OK if tei_healthy else status.HTTP_503_SERVICE_UNAVAILABLE
+    status_code = status.HTTP_200_OK if any_healthy else status.HTTP_503_SERVICE_UNAVAILABLE
     return JSONResponse(content=response, status_code=status_code)

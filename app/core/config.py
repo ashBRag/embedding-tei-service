@@ -57,6 +57,18 @@ class Settings(BaseAppSettings):
     # to keep its own schema in sync with this value.
     TEI_EMBEDDING_DIM: int = 384
 
+    # Voyage AI hosted embeddings API (see libs/ai/embeddings.py for the
+    # client built from these, app/integrations/voyage.py for the
+    # batching/validation wrapper around it). Voyage is only registered as
+    # an available `provider` in POST /embed if VOYAGE_API_KEY is set - see
+    # app/main.py's provider registry.
+    VOYAGE_API_KEY: str = ""
+    VOYAGE_MODEL: str = "voyage-3.5-lite"
+    VOYAGE_REQUEST_TIMEOUT_SECONDS: float = 30.0
+    # Must stay within Voyage's own per-request text-count limit for
+    # VOYAGE_MODEL (see https://docs.voyageai.com/reference/embeddings-api).
+    VOYAGE_CLIENT_BATCH_SIZE: int = 128
+
     # POST /api/v1/embed request bounds.
     EMBED_MAX_TEXTS_PER_REQUEST: int = 1000
     EMBED_MAX_TEXT_CHARS: int = 20_000
