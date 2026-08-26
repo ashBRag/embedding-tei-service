@@ -52,8 +52,30 @@ async def embed_texts(
 
     try:
         vectors = await provider.embed(body.texts, input_type=body.input_type)
-    except (httpx.HTTPError, EmbeddingValidationError) as exc:
-        raise UpstreamEmbeddingError(f"{provider.name} request failed: {exc}") from exc
+    except httpx.TimeoutException as exc:
+        raise UpstreamEmbeddingError(
+            f"{provider.name} request timed out",
+            details={"provider": provider.name, "reason": "timeout"},
+        ) from exc
+    except httpx.HTTPStatusError as exc:
+        raise UpstreamEmbeddingError(
+            f"{provider.name} returned HTTP {exc.response.status_code}",
+            details={
+                "provider": provider.name,
+                "reason": "upstream_http_error",
+                "upstream_status_code": exc.response.status_code,
+            },
+        ) from exc
+    except httpx.HTTPError as exc:
+        raise UpstreamEmbeddingError(
+            f"{provider.name} request failed: {type(exc).__name__}",
+            details={"provider": provider.name, "reason": "connection_error"},
+        ) from exc
+    except EmbeddingValidationError as exc:
+        raise UpstreamEmbeddingError(
+            f"{provider.name} returned an invalid response: {exc}",
+            details={"provider": provider.name, "reason": "invalid_response"},
+        ) from exc
 
     dimension = len(vectors[0]) if vectors else 0
     return EmbedResponse(embeddings=vectors, dimension=dimension)
