@@ -4,12 +4,6 @@ Generic env/logging/rate-limit machinery lives in libs.config;
 this file only adds fields and defaults specific to *this* project.
 """
 
-import json
-from typing import Annotated, Any
-
-from pydantic import field_validator
-from pydantic_settings import NoDecode
-
 from libs.config import BaseAppSettings, Environment
 
 __all__ = ["Environment", "settings"]
@@ -73,26 +67,9 @@ class Settings(BaseAppSettings):
     VOYAGE_REQUEST_TIMEOUT_SECONDS: float = 30.0
     # Must stay within Voyage's own per-request text-count limit for
     # VOYAGE_MODEL (see https://docs.voyageai.com/reference/embeddings-api).
+    # Fallback used only when VOYAGE_MODEL has no entry in
+    # libs.ai.tokenizers.VOYAGE_MODEL_LIMITS - see app/integrations/voyage.py.
     VOYAGE_CLIENT_BATCH_SIZE: int = 128
-
-    # Per-model TPM/RPM caps for Voyage AI (see
-    # https://docs.voyageai.com/docs/rate-limits), consumed by
-    # libs.ai.rate_limit.RateLimiter via app/integrations/voyage.py. Keyed by
-    # model name (must match settings.VOYAGE_MODEL to take effect, and must
-    # have a corresponding entry in libs.ai.tokenizers.VOYAGE_TOKENIZER_REPOS
-    # for token-aware batching). "max_batch_size" here overrides
-    # VOYAGE_CLIENT_BATCH_SIZE for models listed here.
-    VOYAGE_MODEL_LIMITS: Annotated[dict[str, dict[str, int]], NoDecode] = {
-        "voyage-4-lite": {"tpm": 16_000_000, "rpm": 2_000, "max_batch_size": 128},
-    }
-
-    @field_validator("VOYAGE_MODEL_LIMITS", mode="before")
-    @classmethod
-    def _parse_voyage_model_limits(cls, value: Any) -> Any:
-        """Accept VOYAGE_MODEL_LIMITS as a JSON object string from the environment."""
-        if isinstance(value, str):
-            return json.loads(value)
-        return value
 
     # POST /api/v1/embed request bounds.
     EMBED_MAX_TEXTS_PER_REQUEST: int = 1000

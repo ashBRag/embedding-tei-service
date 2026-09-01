@@ -5,13 +5,23 @@ rather than opening a second httpx client - this module owns only the
 EmbeddingProvider contract (batching, rate limiting, order/count/dimension
 validation), not the HTTP call itself.
 
-When the configured model has entries in both settings.VOYAGE_MODEL_LIMITS
-and libs.ai.tokenizers.VOYAGE_TOKENIZER_REPOS, batching is token-aware and
-rate-limited: requests are split so no single request exceeds the model's
-max_batch_size or a safe share of its TPM budget, and every request waits on
-a RateLimiter before going out - so normal traffic volume never draws a 429
-from Voyage's own TPM/RPM caps. Otherwise this falls back to plain
-count-based batching (same as TEI) with no TPM/RPM throttling.
+When the configured model has entries in both
+libs.ai.tokenizers.VOYAGE_MODEL_LIMITS and VOYAGE_TOKENIZER_REPOS, batching
+is token-aware and rate-limited against two independent kinds of limit
+Voyage enforces:
+  - Per-request caps (max_texts_per_request, max_tokens_per_request,
+    max_tokens_per_text): hard ceilings on the shape of a single API call,
+    enforced by plan_token_aware_batches.
+  - The rolling per-minute rate limit (tpm/rpm): how fast repeated requests
+    can go, enforced by RateLimiter.acquire before each HTTP call - so
+    normal traffic volume never draws a 429 from Voyage for exceeding it.
+These are unrelated axes: a request can be small enough to be legal on its
+own (under the per-request caps) while still needing to wait if recent
+requests have already used up this minute's tpm/rpm budget.
+
+If the model has no entry in libs.ai.tokenizers.VOYAGE_MODEL_LIMITS/
+VOYAGE_TOKENIZER_REPOS, this falls back to plain count-based batching (same
+as TEI) with no per-request-token or TPM/RPM awareness.
 
 Unlike TEI, Voyage's output dimension isn't fixed per deployment (it depends
 on which model is configured, and some models support variable output
@@ -26,7 +36,7 @@ from app.core.config import settings
 from app.integrations.base import EmbeddingValidationError, _Logger, embed_in_batches, embed_in_rate_limited_batches
 from libs.ai.embeddings import VoyageEmbeddings, VoyageInputType
 from libs.ai.rate_limit import ModelLimits, RateLimiter
-from libs.ai.tokenizers import VOYAGE_TOKENIZER_REPOS, count_tokens
+from libs.ai.tokenizers import VOYAGE_MODEL_LIMITS, VOYAGE_TOKENIZER_REPOS, count_tokens
 
 __all__ = ["VoyageEmbeddingService"]
 
@@ -45,36 +55,33 @@ class VoyageEmbeddingService:
     ):
         """Store the Voyage client, batching/rate-limit config, and an optional logger.
 
-        `model` selects which entry of settings.VOYAGE_MODEL_LIMITS (TPM/RPM/
-        max_batch_size) and libs.ai.tokenizers.VOYAGE_TOKENIZER_REPOS (token
-        counting) this instance uses; it should match the model
-        `voyage_embeddings` actually calls. `batch_size` is the fallback
-        per-request text-count cap used when `model` has no entry in
-        VOYAGE_MODEL_LIMITS - it must stay within Voyage's own per-request
-        text-count limit for the configured model either way.
+        `model` selects which entry of libs.ai.tokenizers.VOYAGE_MODEL_LIMITS
+        (max_texts_per_request/max_tokens_per_request/max_tokens_per_text/
+        tpm/rpm) and VOYAGE_TOKENIZER_REPOS (token counting) this instance
+        uses; it should match the model `voyage_embeddings` actually calls.
+        `batch_size` is the fallback per-request text-count cap used when
+        `model` has no entry in VOYAGE_MODEL_LIMITS - it must stay within
+        Voyage's own per-request text-count limit for the configured model
+        either way.
 
         Rate-limited, token-aware batching only applies when `model` has
         entries in *both* VOYAGE_MODEL_LIMITS and VOYAGE_TOKENIZER_REPOS
         (token counting needs a tokenizer); otherwise this falls back to
-        plain count-based batching with no TPM/RPM throttling, same as
-        before this feature existed.
+        plain count-based batching with no per-request-token or TPM/RPM
+        awareness, same as before this feature existed.
         """
         self._voyage = voyage_embeddings
         self._model = model
         self._logger = logger
 
-        limits = settings.VOYAGE_MODEL_LIMITS.get(model)
+        limits = VOYAGE_MODEL_LIMITS.get(model)
         self._rate_limited = limits is not None and model in VOYAGE_TOKENIZER_REPOS
-        self._max_batch_size = limits["max_batch_size"] if limits else batch_size
+        self._max_texts_per_batch = limits.max_texts_per_request if limits else batch_size
 
         if self._rate_limited:
-            self._rate_limiter = RateLimiter(
-                ModelLimits(tpm=limits["tpm"], rpm=limits["rpm"], max_batch_size=self._max_batch_size)
-            )
-            # A single request should never claim more than half the TPM
-            # budget, so several concurrent requests can share the window
-            # without one batch starving the rest.
-            self._max_tokens_per_batch = max(limits["tpm"] // 2, 1)
+            self._max_tokens_per_batch = limits.max_tokens_per_request
+            self._max_tokens_per_text = limits.max_tokens_per_text
+            self._rate_limiter = RateLimiter(ModelLimits(tpm=limits.tpm, rpm=limits.rpm))
 
     async def embed(self, texts: list[str], input_type: VoyageInputType = None) -> list[list[float]]:
         """Embed `texts` in order, batching requests within this model's configured limits.
@@ -86,8 +93,9 @@ class VoyageEmbeddingService:
 
         Raises:
             EmbeddingValidationError: If any batch's response from Voyage
-                doesn't have one vector per input text, or vectors within
-                the same response have inconsistent dimensions.
+                doesn't have one vector per input text, vectors within the
+                same response have inconsistent dimensions, or (rate-limited
+                models only) a single text exceeds max_tokens_per_text.
 
         Returns:
             list[list[float]]: One embedding vector per input text, in the
@@ -100,8 +108,9 @@ class VoyageEmbeddingService:
         if self._rate_limited:
             return await embed_in_rate_limited_batches(
                 texts,
-                self._max_batch_size,
+                self._max_texts_per_batch,
                 self._max_tokens_per_batch,
+                self._max_tokens_per_text,
                 count_tokens=lambda text: count_tokens(self._model, text),
                 rate_limiter=self._rate_limiter,
                 embed_batch=embed_batch,
@@ -111,7 +120,7 @@ class VoyageEmbeddingService:
 
         return await embed_in_batches(
             texts,
-            self._max_batch_size,
+            self._max_texts_per_batch,
             embed_batch=embed_batch,
             validate=self._validate,
             on_error=self._log_error,

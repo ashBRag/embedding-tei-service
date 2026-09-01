@@ -12,9 +12,16 @@ from libs.ai.embeddings import (
     build_voyage_embeddings,
 )
 from libs.ai.rate_limit import ModelLimits, RateLimiter
-from libs.ai.tokenizers import VOYAGE_TOKENIZER_REPOS, count_tokens, get_tokenizer
+from libs.ai.tokenizers import (
+    VOYAGE_MODEL_LIMITS,
+    VOYAGE_TOKENIZER_REPOS,
+    VoyageModelLimits,
+    count_tokens,
+    get_tokenizer,
+)
 
 __all__ = [
+    "VOYAGE_MODEL_LIMITS",
     "VOYAGE_TOKENIZER_REPOS",
     "EmbeddingsSettings",
     "ModelLimits",
@@ -22,6 +29,7 @@ __all__ = [
     "TeiEmbeddings",
     "VoyageEmbeddings",
     "VoyageEmbeddingsSettings",
+    "VoyageModelLimits",
     "build_embeddings",
     "build_voyage_embeddings",
     "count_tokens",

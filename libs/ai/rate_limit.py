@@ -24,17 +24,20 @@ _WINDOW_SECONDS = 60.0
 
 @dataclass(frozen=True)
 class ModelLimits:
-    """A hosted model's per-minute usage caps and per-request batch cap.
+    """A hosted model's rolling-window rate caps.
 
     tpm: Tokens per minute allowed by the provider for this model.
     rpm: Requests per minute allowed by the provider for this model.
-    max_batch_size: Max number of texts allowed in a single request to this
-        model (a provider-side cap independent of TPM/RPM).
+
+    Distinct from any per-request size caps (max texts/tokens per request) -
+    those bound the shape of a single request and belong in batch planning
+    (see app/integrations/base.py's plan_token_aware_batches), not here. tpm
+    and rpm bound the *rate* of requests over time, which is what
+    RateLimiter.acquire throttles against.
     """
 
     tpm: int
     rpm: int
-    max_batch_size: int
 
 
 class RateLimiter:
