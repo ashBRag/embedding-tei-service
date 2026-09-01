@@ -4,6 +4,8 @@ Generic env/logging/rate-limit machinery lives in libs.config;
 this file only adds fields and defaults specific to *this* project.
 """
 
+from pydantic import model_validator
+
 from libs.config import BaseAppSettings, Environment
 
 __all__ = ["Environment", "settings"]
@@ -13,6 +15,7 @@ class Settings(BaseAppSettings):
     """This project's settings: adds identity/API fields on top of the base."""
 
     PROJECT_NAME: str = "Embedding Service"
+    PROJECT_SLUG: str = "embedding-service"
     VERSION: str = "1.0.0"
     DESCRIPTION: str = "An API endpoint between TEI and consuming services: batches text and returns embeddings"
     API_V1_STR: str = "/api/v1"
@@ -20,8 +23,21 @@ class Settings(BaseAppSettings):
     # JWT auth for route access (see app/api/deps.py:require_scopes). Distinct
     # from JWT_SECRET_KEY/JWT_ALGORITHM (BaseAppSettings) which those two
     # also draw on - these add the expected 'iss'/'aud' claims.
-    JWT_ISSUER: str = "https://auth.example.com"
-    JWT_AUDIENCE: str = "service-b"
+    # JWT_ISSUER has no default: it must be set via env to whichever auth
+    # service issues tokens for this deployment - there's no safe generic
+    # default. JWT_AUDIENCE defaults to PROJECT_SLUG (see
+    # _default_jwt_audience_from_project_slug below) when not set via env,
+    # since every deployment of this service is itself the intended
+    # audience.
+    JWT_ISSUER: str
+    JWT_AUDIENCE: str = ""
+
+    @model_validator(mode="after")
+    def _default_jwt_audience_from_project_slug(self) -> Settings:
+        """Default JWT_AUDIENCE to PROJECT_SLUG when JWT_AUDIENCE wasn't set explicitly."""
+        if not self.JWT_AUDIENCE:
+            self.JWT_AUDIENCE = self.PROJECT_SLUG
+        return self
 
     # Per-route rate limits; "default" (from BaseAppSettings.RATE_LIMIT_DEFAULT)
     # applies to any route not listed here.

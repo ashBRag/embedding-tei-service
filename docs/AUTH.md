@@ -48,7 +48,7 @@ decoded payload (`sub`, `scopes`, `jti`) is returned to the route as a
   "exp": 1790277655,
   "iat": 1787685655,
   "iss": "https://auth.example.com",
-  "aud": "service-b",
+  "aud": "embedding-service",
   "scope": "orders:read orders:write",
   "jti": "b3f1c2a0-6e4d-4b8a-9f21-0d6e5a7c9f10"
 }
@@ -63,8 +63,8 @@ JSON Schema: [`app/schemas/jwt_payload.schema.json`](../app/schemas/jwt_payload.
 | `sub` | string | `"user-123"` | Calling principal's unique id (opaque identifier, not an email). Becomes `request.state.user_id`. Required. |
 | `exp` | integer, Unix timestamp (seconds) | `1798761600` | Expiry. PyJWT rejects the token once `now > exp`. Typically short-lived. Required. |
 | `iat` | integer, Unix timestamp (seconds) | `1798758000` | Issued-at; must be `<= exp`. Not actively enforced beyond being present. Required. |
-| `iss` | string | `"https://auth.example.com"` | Must exactly match this service's `JWT_ISSUER`. Mismatch is a 401 even with a valid signature. Required. |
-| `aud` | string | `"service-b"` | Must exactly match this service's `JWT_AUDIENCE`. Prevents a token minted for one service being replayed against another. Required. |
+| `iss` | string | `"https://auth.example.com"` | Must exactly match this service's `JWT_ISSUER` (no default - set per deployment to whichever auth service issues tokens). Mismatch is a 401 even with a valid signature. Required. |
+| `aud` | string | `"embedding-service"` | Must exactly match this service's `JWT_AUDIENCE` (defaults to `PROJECT_SLUG` if not set explicitly). Prevents a token minted for one service being replayed against another. Required. |
 | `scope` | string, space-separated | `"orders:read orders:write"` | Permissions granted. Route must find all its required scopes here or gets 403. Optional - missing/empty means no scopes granted. |
 | `jti` | string | a UUID | Unique id for this token instance. Not validated by this service, just passed through to `TokenPayload.jti` for the caller's own use (e.g. revocation, audit logs). Optional. |
 
@@ -89,10 +89,12 @@ Set in `.env.<environment>` (see `.env.example`):
 JWT_SECRET_KEY="your-jwt-secret-key"
 JWT_ALGORITHM=HS256
 JWT_ISSUER="https://auth.example.com"
-JWT_AUDIENCE="service-b"
+# JWT_AUDIENCE=embedding-service   # optional - defaults to PROJECT_SLUG
 ```
 
 `JWT_SECRET_KEY`/`JWT_ALGORITHM` are shared with `LoggingContextMiddleware`
 (decodes the token to bind `session_id` to logs, best-effort, never rejects
 a request on its own). `JWT_ISSUER`/`JWT_AUDIENCE` are used only for route
-auth enforcement.
+auth enforcement. `JWT_ISSUER` has no default and must be set explicitly;
+`JWT_AUDIENCE` defaults to `PROJECT_SLUG` (this service's own identifier)
+when not set.
