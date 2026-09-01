@@ -16,6 +16,8 @@ dependencies = [
     "pyjwt[crypto]>=2.10",
     # Embeddings client base class (see libs/ai/embeddings.py)
     "langchain-core>=0.3",
+    # Token counting for provider rate-limit budgeting (see libs/ai/tokenizers.py)
+    "transformers>=4.45",
     # Logging / metrics
     "structlog>=25.4",
     "prometheus-client>=0.22",
