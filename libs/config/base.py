@@ -93,11 +93,6 @@ class BaseAppSettings(BaseSettings):
 
     # --- Fields every service in this style needs ---
     DEBUG: bool = False
-    # NoDecode: skip pydantic-settings' default JSON parsing for this env var,
-    # so ALLOWED_ORIGINS="http://a,http://b" works instead of requiring
-    # ALLOWED_ORIGINS='["http://a","http://b"]'. The _split_comma_separated
-    # validator below does the actual parsing.
-    ALLOWED_ORIGINS: Annotated[list[str], NoDecode] = ["*"]
 
     JWT_SECRET_KEY: str = ""
     JWT_ALGORITHM: str = "HS256"
@@ -111,15 +106,15 @@ class BaseAppSettings(BaseSettings):
 
     ENVIRONMENT: Environment = get_environment()
 
-    @field_validator("ALLOWED_ORIGINS", "RATE_LIMIT_DEFAULT", mode="before")
+    @field_validator("RATE_LIMIT_DEFAULT", mode="before")
     @classmethod
     def _split_comma_separated(cls, value: Any) -> Any:
         """Accept a plain comma-separated env var value, not just a JSON array.
 
         pydantic-settings parses list[str] fields as JSON by default (e.g.
         `["a","b"]`), which is awkward to write in a .env file. This lets
-        `ALLOWED_ORIGINS="http://a,http://b"` work directly - a real list
-        (already parsed from JSON, or passed in code) is left untouched.
+        `RATE_LIMIT_DEFAULT="200 per day,50 per hour"` work directly - a real
+        list (already parsed from JSON, or passed in code) is left untouched.
         """
         if isinstance(value, str):
             return [item.strip() for item in value.split(",") if item.strip()]

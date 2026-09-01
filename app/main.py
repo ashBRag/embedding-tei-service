@@ -15,7 +15,6 @@ from fastapi import (
     Request,
     status,
 )
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 from slowapi import _rate_limit_exceeded_handler
@@ -83,15 +82,9 @@ app = FastAPI(
 # Exposes GET /metrics for Prometheus to scrape.
 setup_metrics(app)
 
-# Starlette wraps middleware in reverse of add order (last added = outermost),
-# so CORSMiddleware must be added last to sit outside ExceptionMiddleware -
-# otherwise responses built by the exception handlers below (register_exception_handlers,
-# the 429 handler) never pass back through it and error responses come back
-# with no CORS headers, which browsers treat as an opaque failure.
-#
-# Order among the rest matters too: logging context must be bound before
-# MetricsMiddleware runs, so metrics/logs emitted further down the chain see
-# session_id/user_id.
+# Starlette wraps middleware in reverse of add order (last added = outermost).
+# Logging context must be bound before MetricsMiddleware runs, so metrics/logs
+# emitted further down the chain see session_id/user_id.
 app.add_middleware(
     LoggingContextMiddleware, jwt_secret_key=settings.JWT_SECRET_KEY, jwt_algorithm=settings.JWT_ALGORITHM
 )
@@ -109,14 +102,6 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # HTTPException, validation errors, and any unhandled bug (last-resort 500).
 register_exception_handlers(app, logger=logger, debug=settings.DEBUG)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.ALLOWED_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 # All project-specific routes are mounted under API_V1_STR (see app/api/v1/api.py).
 app.include_router(api_router, prefix=settings.API_V1_STR)
 
@@ -124,10 +109,7 @@ app.include_router(api_router, prefix=settings.API_V1_STR)
 def custom_openapi() -> dict[str, Any]:
     """Add the bearer-JWT security scheme so /docs shows an Authorize button.
 
-    Auth here is a plain `Authorization: Bearer <token>` header checked by
-    libs.auth.require_scopes (see app/api/deps.py), not FastAPI's own
-    OAuth2/HTTPBearer dependency machinery - so the scheme has to be added to
-    the OpenAPI schema by hand rather than inferred from a dependency.
+    Auth here is a plain `Authorization: Bearer <token>` header with a JWT issued by the auth service (see docs/AUTH.md). 
     """
     if app.openapi_schema:
         return app.openapi_schema
